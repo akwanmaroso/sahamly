@@ -10,7 +10,7 @@ const GEMINI_MODEL = "gemini-2.5-flash";
 type SnapshotForReport = {
   id: string;
   as_of_date: string;
-  price_data: { ohlcv: OhlcvBar[]; indicators: ComputedIndicators };
+  price_data: { ohlcv: OhlcvBar[]; indicators: ComputedIndicators; source?: string };
   fundamental_data: RawFundamentals;
   flow_data: RawFlow;
 };
@@ -124,7 +124,7 @@ export async function generateReport(
       position_sizing_note: narrative.entry_exit.position_sizing_note,
     },
     data_as_of: snapshot.as_of_date,
-    data_sources: ["Simulated market data (mock fetcher)"],
+    data_sources: ["IDX official market data (idx.co.id)"],
   };
 
   const validated = reportJsonSchema.parse(reportJson);

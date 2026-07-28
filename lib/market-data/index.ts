@@ -1,17 +1,14 @@
-import { fetchMockTickerData } from "./mock";
+import { fetchIdxTickerData } from "./idx";
 import type { RawTickerData } from "./types";
 
 export type { OhlcvBar, RawFlow, RawFundamentals, RawTickerData } from "./types";
 
 /**
- * Fetches raw OHLCV + fundamental + flow data for a ticker symbol.
+ * Fetches raw OHLCV + fundamental + flow data for a ticker symbol
+ * from the official IDX website endpoints.
  *
- * This is the single point to swap when a real IDX data source is chosen —
- * replace the body with a real API/scraper call that resolves to the same
- * `RawTickerData` shape. Every caller (indicator computation, snapshot
- * storage) only depends on this function's signature, not on how the data
- * is sourced.
+ * Throws on failure — callers must handle the error (e.g. show it in the UI).
  */
 export async function fetchTickerData(symbol: string): Promise<RawTickerData> {
-  return fetchMockTickerData(symbol);
+  return fetchIdxTickerData(symbol);
 }

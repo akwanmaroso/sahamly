@@ -20,7 +20,7 @@ export async function createSnapshot(
     .insert({
       ticker_id: ticker.id,
       as_of_date: raw.asOfDate,
-      price_data: { ohlcv: raw.ohlcv, indicators },
+      price_data: { ohlcv: raw.ohlcv, indicators, source: raw.source },
       fundamental_data: raw.fundamentals,
       flow_data: raw.flow,
     })
