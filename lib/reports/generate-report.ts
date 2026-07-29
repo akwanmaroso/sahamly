@@ -8,6 +8,7 @@ import { computeDeterministicTechnical, type DeterministicTechnical } from "./de
 import { computeTimeframeAlignment } from "@/lib/indicators/multi-timeframe";
 import { computeAdaptiveWeights, applySignalWeights } from "@/lib/backtest/signal-weights";
 import { computeLiquidityMetrics } from "@/lib/indicators/liquidity";
+import type { InsiderData } from "@/lib/market-data/insider-trades";
 import { geminiNarrativeSchema, narrativeReportSchema, reportJsonSchema, type ReportJson } from "./schema";
 
 const GEMINI_MODEL = "gemini-2.5-flash";
@@ -18,6 +19,7 @@ type SnapshotForReport = {
   price_data: { ohlcv: OhlcvBar[]; indicators: ComputedIndicators; source?: string };
   fundamental_data: RawFundamentals;
   flow_data: RawFlow & { flowMetrics?: FlowMetrics };
+  insider_data?: InsiderData;
 };
 
 type TickerForReport = {
@@ -70,6 +72,67 @@ Broker flow metrics (20-day window):
 - 20-day avg net foreign: ${fm.flowTrend.mediumTermAvg.toLocaleString("en-US")} IDR${fm.flowTrend.reversalDetected ? `\n- ⚠ REVERSAL DETECTED: ${fm.flowTrend.reversalType} (short-term direction differs from medium-term)` : ""}
 - Top buyers: ${topBuyersList || "none"}
 - Top sellers: ${topSellersList || "none"}`;
+
+    // Smart money analysis
+    if (fm.smartMoney) {
+      const sm = fm.smartMoney;
+      flowSection += `
+
+Smart money analysis (whale-weighted):
+- Smart money score: ${sm.smartMoneyScore} (whale brokers weighted 2.5× vs retail 0.5×)
+- Whale net flow: ${sm.whaleNetFlow.toLocaleString("en-US")} IDR
+- Retail net flow: ${sm.retailNetFlow.toLocaleString("en-US")} IDR
+- Smart vs retail: ${sm.smartVsRetail}${sm.smartVsRetail === "divergent" ? " ⚠ WHALE-RETAIL DIVERGENCE — whales and retail are on opposite sides" : ""}
+- Top whale activity: ${sm.topWhaleActivity.map((w) => `${w.name} (${w.code}): ${w.netValue.toLocaleString("en-US")} IDR`).join("; ") || "none"}`;
+    }
+
+    // Accumulation patterns
+    if (fm.accumulationPatterns && fm.accumulationPatterns.length > 0) {
+      flowSection += `
+
+Accumulation/distribution patterns detected:
+${fm.accumulationPatterns.map((p) => `- [${p.confidence.toUpperCase()}] ${p.description}`).join("\n")}`;
+    }
+
+    // Block trades
+    if (fm.blockTrades?.detected) {
+      flowSection += `
+
+Block trade activity:
+${fm.blockTrades.signals.map((s) => `- ${s.description}`).join("\n")}`;
+    }
+  }
+
+  // Flow-adjusted entry
+  if (technical.flowEntry) {
+    flowSection += `
+
+Flow-adjusted entry signal:
+- Flow confirms entry: ${technical.flowEntry.flowConfirmsEntry ? "YES" : "NO"}
+- Reason: ${technical.flowEntry.reason}
+- Adjusted confidence: ${technical.flowEntry.adjustedConfidence}`;
+  }
+
+  // Insider transaction data
+  const insider = snapshot.insider_data;
+  if (insider && (insider.transactions.length > 0 || insider.institutions.length > 0)) {
+    flowSection += `
+
+Insider activity:
+- Net insider sentiment: ${insider.netInsiderSentiment} (score: ${insider.recentActivityScore})`;
+    if (insider.holders.insiderPct != null) {
+      flowSection += `\n- Insider ownership: ${(insider.holders.insiderPct * 100).toFixed(1)}%`;
+    }
+    if (insider.holders.institutionPct != null) {
+      flowSection += `\n- Institutional ownership: ${(insider.holders.institutionPct * 100).toFixed(1)}%`;
+    }
+    if (insider.transactions.length > 0) {
+      const recentTxns = insider.transactions.slice(0, 5);
+      flowSection += `\n- Recent insider transactions:\n${recentTxns.map((t) => `  ${t.date}: ${t.insider} (${t.position}) — ${t.transaction} ${t.shares.toLocaleString("en-US")} shares (${t.value.toLocaleString("en-US")} IDR)`).join("\n")}`;
+    }
+    if (insider.institutions.length > 0) {
+      flowSection += `\n- Top institutional holders: ${insider.institutions.slice(0, 5).map((i) => `${i.holder} (${(i.pctHeld * 100).toFixed(1)}%)`).join(", ")}`;
+    }
   }
 
   const moneyFlowInstruction = fm
@@ -141,7 +204,7 @@ export async function generateReport(
   snapshot: SnapshotForReport
 ): Promise<{ id: string }> {
   const currentPrice = snapshot.price_data.ohlcv.at(-1)!.close;
-  const technical = computeDeterministicTechnical(snapshot.price_data.indicators, currentPrice);
+  const technical = computeDeterministicTechnical(snapshot.price_data.indicators, currentPrice, snapshot.flow_data.flowMetrics);
   const tfAlignment = computeTimeframeAlignment(snapshot.price_data.ohlcv);
   const liquidity = computeLiquidityMetrics(snapshot.price_data.ohlcv);
   const composite = computeCompositeScore(
@@ -236,6 +299,15 @@ export async function generateReport(
       target_zone: technical.targetZone,
       risk_reward_ratio: technical.riskRewardRatio,
       position_sizing_note: narrative.entry_exit.position_sizing_note,
+      ...(technical.flowEntry
+        ? {
+            flow_entry: {
+              flow_confirms_entry: technical.flowEntry.flowConfirmsEntry,
+              reason: technical.flowEntry.reason,
+              adjusted_confidence: technical.flowEntry.adjustedConfidence,
+            },
+          }
+        : {}),
     },
     ...(flowMetrics
       ? {

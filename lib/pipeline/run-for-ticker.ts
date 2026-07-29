@@ -3,6 +3,7 @@ import { createSnapshot } from "@/lib/snapshots/create-snapshot";
 import { generateReport } from "@/lib/reports/generate-report";
 import { fetchAndStoreBrokerFlows } from "@/lib/broker-flow/fetch-and-store";
 import type { ReportJson } from "@/lib/reports/schema";
+import type { FlowMetrics } from "@/lib/market-data/types";
 import { detectSignals } from "@/lib/signals/detect";
 import { syncDailyOhlcv } from "@/lib/backtest/backfill-history";
 
@@ -68,11 +69,32 @@ export async function runPipelineForTicker(supabase: SupabaseClient, ticker: Tic
       .eq("id", reportRef.id)
       .single();
 
+    // Extract current and previous flow metrics for whale signal detection
+    const currentFlowData = snapshot.flow_data as { flowMetrics?: FlowMetrics } | null;
+    const currentFlowMetrics = currentFlowData?.flowMetrics ?? null;
+
+    // Get previous snapshot's flow metrics
+    let previousFlowMetrics: FlowMetrics | null = null;
+    const { data: prevSnapshot } = await supabase
+      .from("snapshots")
+      .select("flow_data")
+      .eq("ticker_id", ticker.id)
+      .neq("id", snapshotRef.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (prevSnapshot?.flow_data) {
+      const prevFlowData = prevSnapshot.flow_data as { flowMetrics?: FlowMetrics };
+      previousFlowMetrics = prevFlowData.flowMetrics ?? null;
+    }
+
     if (newReport?.report_json) {
       const signals = detectSignals(
         ticker.symbol,
         newReport.report_json as ReportJson,
-        (prevReport?.report_json as ReportJson) ?? null
+        (prevReport?.report_json as ReportJson) ?? null,
+        currentFlowMetrics,
+        previousFlowMetrics
       );
 
       if (signals.length > 0) {
@@ -82,6 +104,7 @@ export async function runPipelineForTicker(supabase: SupabaseClient, ticker: Tic
             report_id: reportRef.id,
             signal_type: s.signal_type,
             severity: s.severity,
+            priority: s.priority,
             title: s.title,
             description: s.description,
             data: s.data,

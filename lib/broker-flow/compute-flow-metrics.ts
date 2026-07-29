@@ -1,5 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { classifyBroker } from "@/lib/market-data/broker-codes";
+import { computeSmartMoneyScore } from "./broker-tiers";
+import { detectAccumulationPatterns } from "./detect-accumulation";
+import { detectBlockTrades } from "./detect-block-trades";
 import type {
   BrokerActivity,
   DailyForeignFlow,
@@ -187,6 +190,33 @@ export async function computeFlowMetrics(
     trendStrength,
   };
 
+  // --- Smart money analysis ---
+  const smartMoney = computeSmartMoneyScore(
+    allBrokers.map((b) => ({ brokerCode: b.brokerCode, netValue: b.netValue }))
+  );
+
+  // --- Accumulation pattern detection ---
+  const accumulationPatterns = await detectAccumulationPatterns(
+    supabase,
+    tickerId,
+    lookbackDays
+  );
+
+  // --- Block trade detection ---
+  const blockTradeSignals = detectBlockTrades(allBrokers);
+  const blockTrades = {
+    detected: blockTradeSignals.length > 0,
+    signals: blockTradeSignals.map((s) => ({
+      brokerCode: s.brokerCode,
+      brokerName: s.brokerName,
+      direction: s.direction,
+      avgTransactionSize: s.avgTransactionSize,
+      totalValue: s.totalValue,
+      isBlockTrade: s.isBlockTrade,
+      description: s.description,
+    })),
+  };
+
   return {
     foreignFlowScore,
     brokerConcentrationScore,
@@ -196,5 +226,8 @@ export async function computeFlowMetrics(
     topSellers,
     dailyForeignFlow,
     flowTrend,
+    smartMoney,
+    accumulationPatterns,
+    blockTrades,
   };
 }

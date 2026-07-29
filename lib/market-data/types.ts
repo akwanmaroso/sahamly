@@ -50,6 +50,10 @@ export type BrokerActivity = {
   sellVolume: number;
   sellValue: number;
   netValue: number;
+  buyAvgSize?: number; // average buy transaction size (IDR)
+  sellAvgSize?: number; // average sell transaction size (IDR)
+  buyFreq?: number; // number of buy transactions
+  sellFreq?: number; // number of sell transactions
 };
 
 export type DailyForeignFlow = {
@@ -68,6 +72,36 @@ export type FlowTrend = {
   trendStrength: number; // 0-100
 };
 
+export type SmartMoneyMetrics = {
+  smartMoneyScore: number; // -100 to +100 (whale-weighted)
+  whaleNetFlow: number; // IDR net from tier-1 brokers
+  retailNetFlow: number; // IDR net from tier-3 brokers
+  smartVsRetail: "aligned" | "divergent" | "neutral";
+  topWhaleActivity: { code: string; name: string; netValue: number }[];
+};
+
+export type AccumulationPattern = {
+  detected: boolean;
+  type: "stealth_accumulation" | "stealth_distribution" | "absorption" | "coordinated_entry" | null;
+  description: string;
+  brokerCode?: string; // the broker doing it
+  daysActive?: number;
+  confidence: "high" | "medium" | "low";
+};
+
+export type BlockTradeInfo = {
+  detected: boolean;
+  signals: {
+    brokerCode: string;
+    brokerName: string;
+    direction: "buy" | "sell";
+    avgTransactionSize: number;
+    totalValue: number;
+    isBlockTrade: boolean;
+    description: string;
+  }[];
+};
+
 export type FlowMetrics = {
   foreignFlowScore: number; // -100 to +100
   brokerConcentrationScore: number; // 0 to 100
@@ -77,4 +111,7 @@ export type FlowMetrics = {
   topSellers: BrokerActivity[];
   dailyForeignFlow: DailyForeignFlow[];
   flowTrend: FlowTrend;
+  smartMoney?: SmartMoneyMetrics;
+  accumulationPatterns?: AccumulationPattern[];
+  blockTrades?: BlockTradeInfo;
 };

@@ -70,6 +70,13 @@ export const reportJsonSchema = z.object({
     target_zone: z.tuple([z.number(), z.number()]),
     risk_reward_ratio: z.number().nullable().optional(),
     position_sizing_note: z.string(),
+    flow_entry: z
+      .object({
+        flow_confirms_entry: z.boolean(),
+        reason: z.string(),
+        adjusted_confidence: z.string(),
+      })
+      .optional(),
   }),
   money_flow: z
     .object({
