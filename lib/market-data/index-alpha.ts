@@ -139,6 +139,10 @@ function mapBrokerRow(r: AlphaBrokerRow): BrokerActivity {
     sellVolume: r.sell_volume,
     sellValue: r.sell_value,
     netValue: r.buy_value - r.sell_value,
+    buyAvgSize: r.buy_avg,
+    sellAvgSize: r.sell_avg,
+    buyFreq: r.buy_freq,
+    sellFreq: r.sell_freq,
   };
 }
 

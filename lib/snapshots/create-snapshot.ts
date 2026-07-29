@@ -3,6 +3,7 @@ import { fetchTickerData } from "@/lib/market-data";
 import { computeIndicators } from "@/lib/indicators/compute";
 import { computeFlowMetrics } from "@/lib/broker-flow/compute-flow-metrics";
 import { fetchYahooFundamentals, yahooToFundamentals } from "@/lib/market-data/yahoo-fundamentals";
+import { fetchInsiderData } from "@/lib/market-data/insider-trades";
 
 /**
  * Fetches raw market data, computes deterministic indicators, and inserts a
@@ -14,9 +15,10 @@ export async function createSnapshot(
   supabase: SupabaseClient,
   ticker: { id: string; symbol: string }
 ) {
-  const [raw, yahooData] = await Promise.all([
+  const [raw, yahooData, insiderData] = await Promise.all([
     fetchTickerData(ticker.symbol),
     fetchYahooFundamentals(ticker.symbol).catch(() => null),
+    fetchInsiderData(ticker.symbol).catch(() => null),
   ]);
   const indicators = computeIndicators(raw.ohlcv);
 
@@ -47,6 +49,7 @@ export async function createSnapshot(
       price_data: { ohlcv: raw.ohlcv, indicators, source: raw.source },
       fundamental_data: fundamentals,
       flow_data: flowData,
+      ...(insiderData ? { insider_data: insiderData } : {}),
     })
     .select("id, as_of_date")
     .single();

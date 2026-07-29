@@ -1,4 +1,11 @@
 import type { ComputedIndicators } from "@/lib/indicators/types";
+import type { FlowMetrics } from "@/lib/market-data/types";
+
+export type FlowAdjustedEntry = {
+  flowConfirmsEntry: boolean;
+  reason: string;
+  adjustedConfidence: "high" | "medium" | "low";
+};
 
 export type DeterministicTechnical = {
   supportLevels: [number, number];
@@ -7,6 +14,7 @@ export type DeterministicTechnical = {
   stopLoss: number;
   targetZone: [number, number];
   riskRewardRatio: number | null;
+  flowEntry?: FlowAdjustedEntry;
 };
 
 /**
@@ -22,7 +30,8 @@ export type DeterministicTechnical = {
  */
 export function computeDeterministicTechnical(
   indicators: Pick<ComputedIndicators, "supportLevels" | "resistanceLevels" | "atr14">,
-  currentPrice: number
+  currentPrice: number,
+  flowMetrics?: FlowMetrics
 ): DeterministicTechnical {
   const support = indicators.supportLevels;
   const nearSupport = support.length >= 1 ? support[support.length - 1] : Math.round(currentPrice * 0.95);
@@ -54,6 +63,55 @@ export function computeDeterministicTechnical(
     ? Math.round((potentialGain / potentialLoss) * 100) / 100
     : null;
 
+  // Flow-adjusted entry: combine technical levels with broker flow direction
+  let flowEntry: FlowAdjustedEntry | undefined;
+  if (flowMetrics) {
+    const flowPositive = flowMetrics.foreignFlowScore > 10;
+    const flowNegative = flowMetrics.foreignFlowScore < -10;
+    const smartMoneyBullish = flowMetrics.smartMoney?.smartMoneyScore
+      ? flowMetrics.smartMoney.smartMoneyScore > 20
+      : false;
+    const smartMoneyBearish = flowMetrics.smartMoney?.smartMoneyScore
+      ? flowMetrics.smartMoney.smartMoneyScore < -20
+      : false;
+    const hasAccumulation = flowMetrics.accumulationPatterns?.some(
+      (p) => p.type === "stealth_accumulation" || p.type === "coordinated_entry"
+    ) ?? false;
+    const momentumOk = flowMetrics.flowMomentum !== "decelerating";
+
+    if (flowPositive && smartMoneyBullish && hasAccumulation && momentumOk) {
+      flowEntry = {
+        flowConfirmsEntry: true,
+        reason: "Strong flow confirmation — foreign inflow + smart money buying + accumulation pattern detected",
+        adjustedConfidence: "high",
+      };
+    } else if (flowPositive && (smartMoneyBullish || momentumOk)) {
+      flowEntry = {
+        flowConfirmsEntry: true,
+        reason: "Flow supports entry — foreign inflow with positive momentum",
+        adjustedConfidence: "medium",
+      };
+    } else if (flowNegative && smartMoneyBearish) {
+      flowEntry = {
+        flowConfirmsEntry: false,
+        reason: "Flow contradicts entry — smart money selling, avoid buying against whale flow",
+        adjustedConfidence: "low",
+      };
+    } else if (flowNegative) {
+      flowEntry = {
+        flowConfirmsEntry: false,
+        reason: "Weak flow — foreign outflow active, wait for reversal before entering",
+        adjustedConfidence: "low",
+      };
+    } else {
+      flowEntry = {
+        flowConfirmsEntry: false,
+        reason: "Neutral flow — no strong signal from broker activity",
+        adjustedConfidence: "medium",
+      };
+    }
+  }
+
   return {
     supportLevels: [farSupport, nearSupport],
     resistanceLevels: [nearResistance, farResistance],
@@ -61,5 +119,6 @@ export function computeDeterministicTechnical(
     stopLoss,
     targetZone,
     riskRewardRatio,
+    flowEntry,
   };
 }

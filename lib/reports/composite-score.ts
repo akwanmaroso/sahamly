@@ -286,6 +286,55 @@ function scoreFlow(flowMetrics: FlowMetrics | undefined, marketCap?: number): Su
     factors.push(`High broker concentration (${flowMetrics.brokerConcentrationScore}/100) — single broker dominates`);
   }
 
+  // Smart money analysis
+  if (flowMetrics.smartMoney) {
+    const sm = flowMetrics.smartMoney;
+    if (sm.smartMoneyScore > 30) {
+      score += 20;
+      factors.push(`Smart money bullish (whale score: +${sm.smartMoneyScore})`);
+    } else if (sm.smartMoneyScore < -30) {
+      score -= 20;
+      factors.push(`Smart money bearish (whale score: ${sm.smartMoneyScore})`);
+    }
+
+    // Whale-retail divergence is a strong signal — follow the whales
+    if (sm.smartVsRetail === "divergent") {
+      if (sm.whaleNetFlow > 0) {
+        score += 15;
+        factors.push("Whale-retail divergence: whales buying while retail sells (bullish)");
+      } else {
+        score -= 15;
+        factors.push("Whale-retail divergence: whales selling while retail buys (bearish — retail is exit liquidity)");
+      }
+    }
+  }
+
+  // Accumulation patterns
+  if (flowMetrics.accumulationPatterns && flowMetrics.accumulationPatterns.length > 0) {
+    const hasAccum = flowMetrics.accumulationPatterns.some(
+      (p) => p.type === "stealth_accumulation" && p.confidence === "high"
+    );
+    const hasDist = flowMetrics.accumulationPatterns.some(
+      (p) => p.type === "stealth_distribution" && p.confidence === "high"
+    );
+    const hasCoordinated = flowMetrics.accumulationPatterns.some(
+      (p) => p.type === "coordinated_entry"
+    );
+
+    if (hasAccum) {
+      score += 15;
+      factors.push("Stealth accumulation detected (institutional broker buying consistently)");
+    }
+    if (hasDist) {
+      score -= 15;
+      factors.push("Stealth distribution detected (institutional broker selling consistently)");
+    }
+    if (hasCoordinated) {
+      score += 10;
+      factors.push("Coordinated whale entry detected (multiple institutional brokers aligned)");
+    }
+  }
+
   return { score: clamp(Math.round(score), -100, 100), label: "Flow", factors };
 }
 

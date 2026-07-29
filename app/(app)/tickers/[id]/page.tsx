@@ -72,6 +72,33 @@ export default async function TickerDetailPage({
 
   const backtestSummary = await getBacktestSummary(supabase, id);
 
+  // Get latest snapshot for smart money data
+  const { data: latestSnapshot } = await supabase
+    .from("snapshots")
+    .select("flow_data, insider_data")
+    .eq("ticker_id", id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const flowData = latestSnapshot?.flow_data as {
+    flowMetrics?: {
+      smartMoney?: {
+        smartMoneyScore: number;
+        whaleNetFlow: number;
+        retailNetFlow: number;
+        smartVsRetail: string;
+        topWhaleActivity: { code: string; name: string; netValue: number }[];
+      };
+      accumulationPatterns?: { type: string; description: string; confidence: string }[];
+      blockTrades?: { detected: boolean; signals: { description: string; isBlockTrade: boolean }[] };
+    };
+  } | undefined;
+
+  const smartMoney = flowData?.flowMetrics?.smartMoney;
+  const accPatterns = flowData?.flowMetrics?.accumulationPatterns;
+  const blockTrades = flowData?.flowMetrics?.blockTrades;
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-6 py-10">
       <div className="flex items-start justify-between">
@@ -418,6 +445,122 @@ export default async function TickerDetailPage({
             </div>
           )}
 
+          {/* Smart Money & Whale Tracking */}
+          {smartMoney && (
+            <div className="flex flex-col gap-4">
+              <SectionLabel>Smart Money Tracking</SectionLabel>
+              <div className="grid grid-cols-3 gap-4 font-mono">
+                <div>
+                  <dt className="text-[0.6875rem] tracking-wide text-muted uppercase">
+                    Whale score
+                  </dt>
+                  <dd
+                    className={`mt-1 text-lg font-semibold ${
+                      smartMoney.smartMoneyScore > 20
+                        ? "text-gain"
+                        : smartMoney.smartMoneyScore < -20
+                          ? "text-loss"
+                          : "text-ink"
+                    }`}
+                  >
+                    {smartMoney.smartMoneyScore > 0 ? "+" : ""}
+                    {smartMoney.smartMoneyScore}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[0.6875rem] tracking-wide text-muted uppercase">
+                    Smart vs Retail
+                  </dt>
+                  <dd
+                    className={`mt-1 text-sm font-semibold ${
+                      smartMoney.smartVsRetail === "divergent"
+                        ? "text-amber"
+                        : smartMoney.smartVsRetail === "aligned"
+                          ? "text-gain"
+                          : "text-muted"
+                    }`}
+                  >
+                    {smartMoney.smartVsRetail === "divergent"
+                      ? `Divergent ${smartMoney.whaleNetFlow > 0 ? "(whales buy, retail sells)" : "(whales sell, retail buys)"}`
+                      : smartMoney.smartVsRetail}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[0.6875rem] tracking-wide text-muted uppercase">
+                    Whale net flow
+                  </dt>
+                  <dd
+                    className={`mt-1 text-sm font-semibold ${
+                      smartMoney.whaleNetFlow > 0 ? "text-gain" : smartMoney.whaleNetFlow < 0 ? "text-loss" : "text-ink"
+                    }`}
+                  >
+                    {(smartMoney.whaleNetFlow / 1e9).toFixed(1)}B IDR
+                  </dd>
+                </div>
+              </div>
+
+              {smartMoney.topWhaleActivity.length > 0 && (
+                <div>
+                  <dt className="font-mono text-[0.6875rem] tracking-wide text-muted uppercase mb-2">
+                    Top whale activity
+                  </dt>
+                  <ul className="space-y-1">
+                    {smartMoney.topWhaleActivity.map((w) => (
+                      <li key={w.code} className="flex items-center gap-2 text-sm">
+                        <span className="font-mono font-semibold text-ink">{w.code}</span>
+                        <span className="text-xs text-muted">{w.name}</span>
+                        <span
+                          className={`ml-auto font-mono text-xs ${
+                            w.netValue > 0 ? "text-gain" : "text-loss"
+                          }`}
+                        >
+                          {w.netValue > 0 ? "+" : ""}
+                          {(w.netValue / 1e9).toFixed(1)}B
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {accPatterns && accPatterns.length > 0 && (
+                <div>
+                  <dt className="font-mono text-[0.6875rem] tracking-wide text-muted uppercase mb-2">
+                    Accumulation patterns
+                  </dt>
+                  {accPatterns.map((p, i) => (
+                    <div
+                      key={i}
+                      className={`mb-1 rounded px-3 py-2 text-xs ${
+                        p.confidence === "high"
+                          ? "border border-amber/40 bg-amber/10 text-ink"
+                          : "border border-line bg-surface text-muted"
+                      }`}
+                    >
+                      <span className="font-mono font-semibold uppercase text-[0.6rem]">
+                        [{p.confidence}]
+                      </span>{" "}
+                      {p.description}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {blockTrades?.detected && (
+                <details className="text-xs text-muted">
+                  <summary className="cursor-pointer hover:text-ink">Block trade activity</summary>
+                  <ul className="mt-2 space-y-1 pl-4">
+                    {blockTrades.signals.map((s, i) => (
+                      <li key={i} className={`list-disc ${s.isBlockTrade ? "text-amber" : ""}`}>
+                        {s.description}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </div>
+          )}
+
           <div className="flex flex-col gap-4">
             <SectionLabel>Entry / Exit</SectionLabel>
             <div className="rounded border border-amber/40 bg-surface p-5">
@@ -460,6 +603,20 @@ export default async function TickerDetailPage({
               <p className="mt-4 border-t border-line pt-4 text-sm leading-relaxed text-ink">
                 {rj.entry_exit.position_sizing_note}
               </p>
+              {rj.entry_exit.flow_entry && (
+                <div
+                  className={`mt-3 rounded px-3 py-2 text-xs ${
+                    rj.entry_exit.flow_entry.flow_confirms_entry
+                      ? "border border-gain/40 bg-gain/10 text-gain"
+                      : "border border-loss/40 bg-loss/10 text-loss"
+                  }`}
+                >
+                  <span className="font-mono font-semibold">
+                    Flow {rj.entry_exit.flow_entry.flow_confirms_entry ? "CONFIRMS" : "CONTRADICTS"} entry
+                  </span>
+                  <span className="ml-2 text-ink">{rj.entry_exit.flow_entry.reason}</span>
+                </div>
+              )}
             </div>
           </div>
 
