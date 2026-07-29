@@ -1,4 +1,4 @@
-import { RSI, SMA } from "technicalindicators";
+import { MFI, OBV, RSI, SMA } from "technicalindicators";
 import type { OhlcvBar } from "@/lib/market-data";
 import type { ComputedIndicators } from "./types";
 
@@ -66,6 +66,8 @@ function computeSupportResistance(bars: OhlcvBar[], currentPrice: number) {
 
 /** Computes deterministic technical indicators from raw OHLCV. No AI, no invented numbers. */
 export function computeIndicators(ohlcv: OhlcvBar[]): ComputedIndicators {
+  const highs = ohlcv.map((bar) => bar.high);
+  const lows = ohlcv.map((bar) => bar.low);
   const closes = ohlcv.map((bar) => bar.close);
   const volumes = ohlcv.map((bar) => bar.volume);
   const currentPrice = closes[closes.length - 1];
@@ -76,6 +78,26 @@ export function computeIndicators(ohlcv: OhlcvBar[]): ComputedIndicators {
   const sma200 = lastOrNull(SMA.calculate({ period: 200, values: closes }));
   const rsi14 = lastOrNull(RSI.calculate({ period: 14, values: closes }));
 
+  // Money Flow Index (14-period) — like RSI but volume-weighted
+  const mfi14 = lastOrNull(
+    MFI.calculate({ high: highs, low: lows, close: closes, volume: volumes, period: 14 })
+  );
+
+  // On-Balance Volume — cumulative volume direction indicator
+  const obvValues = OBV.calculate({ close: closes, volume: volumes });
+  const obvCurrent = obvValues.length > 0 ? obvValues[obvValues.length - 1] : 0;
+  const obvSma20 = lastOrNull(SMA.calculate({ period: 20, values: obvValues }));
+  // OBV trend: compare last 5 OBV values to detect direction
+  let obvTrend: "rising" | "falling" | "flat" = "flat";
+  if (obvValues.length >= 5) {
+    const recent5 = obvValues.slice(-5);
+    const obvSlope = recent5[4] - recent5[0];
+    const avgObv = recent5.reduce((s, v) => s + Math.abs(v), 0) / 5;
+    const threshold = avgObv * 0.02; // 2% of average absolute OBV
+    if (obvSlope > threshold) obvTrend = "rising";
+    else if (obvSlope < -threshold) obvTrend = "falling";
+  }
+
   const volumeSma20 = lastOrNull(SMA.calculate({ period: 20, values: volumes })) ?? latestVolume;
   const volumeRatio = volumeSma20 > 0 ? Number((latestVolume / volumeSma20).toFixed(2)) : 1;
 
@@ -84,6 +106,8 @@ export function computeIndicators(ohlcv: OhlcvBar[]): ComputedIndicators {
   return {
     sma: { sma20, sma50, sma200 },
     rsi14,
+    mfi14,
+    obv: { current: obvCurrent, sma20: obvSma20, trend: obvTrend },
     volume: { avg20d: Math.round(volumeSma20), latest: latestVolume, ratio: volumeRatio },
     supportLevels,
     resistanceLevels,

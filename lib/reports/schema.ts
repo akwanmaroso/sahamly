@@ -31,6 +31,12 @@ export const narrativeReportSchema = z.object({
   entry_exit: z.object({
     position_sizing_note: z.string(),
   }),
+  money_flow: z
+    .object({
+      flow_interpretation: z.string(),
+      notable_brokers: z.string().nullable(),
+    })
+    .optional(),
 });
 
 export type NarrativeReport = z.infer<typeof narrativeReportSchema>;
@@ -64,6 +70,56 @@ export const reportJsonSchema = z.object({
     target_zone: z.tuple([z.number(), z.number()]),
     position_sizing_note: z.string(),
   }),
+  money_flow: z
+    .object({
+      foreign_flow_score: z.number(),
+      broker_concentration_score: z.number(),
+      flow_momentum: z.enum(["accelerating", "steady", "decelerating"]),
+      consecutive_foreign_buy_days: z.number(),
+      top_buyers: z.array(
+        z.object({
+          broker_code: z.string(),
+          type: z.enum(["foreign", "domestic"]),
+          net_value: z.number(),
+        })
+      ),
+      top_sellers: z.array(
+        z.object({
+          broker_code: z.string(),
+          type: z.enum(["foreign", "domestic"]),
+          net_value: z.number(),
+        })
+      ),
+      daily_foreign_flow: z.array(
+        z.object({
+          date: z.string(),
+          net_foreign: z.number(),
+        })
+      ),
+      flow_trend: z
+        .object({
+          trend_direction: z.enum(["accumulating", "distributing", "neutral"]),
+          reversal_detected: z.boolean(),
+          reversal_type: z.enum(["bullish", "bearish"]).nullable(),
+          trend_strength: z.number(),
+          short_term_avg: z.number(),
+          medium_term_avg: z.number(),
+        })
+        .optional(),
+      flow_interpretation: z.string(),
+      notable_brokers: z.string().nullable(),
+    })
+    .optional(),
+  composite_score: z
+    .object({
+      total: z.number(),
+      technical: z.object({ score: z.number(), factors: z.array(z.string()) }),
+      fundamental: z.object({ score: z.number(), factors: z.array(z.string()) }),
+      flow: z.object({ score: z.number(), factors: z.array(z.string()) }),
+      suggested_verdict: z.string(),
+      suggested_confidence: z.string(),
+    })
+    .optional(),
   data_as_of: z.string(),
   data_sources: z.array(z.string()),
 });
@@ -112,6 +168,15 @@ export const geminiNarrativeSchema: Schema = {
         position_sizing_note: { type: Type.STRING },
       },
       required: ["position_sizing_note"],
+    },
+    money_flow: {
+      type: Type.OBJECT,
+      nullable: true,
+      properties: {
+        flow_interpretation: { type: Type.STRING },
+        notable_brokers: { type: Type.STRING, nullable: true },
+      },
+      required: ["flow_interpretation", "notable_brokers"],
     },
   },
   required: [

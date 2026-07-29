@@ -5,6 +5,12 @@ export type ComputedIndicators = {
     sma200: number | null;
   };
   rsi14: number | null;
+  mfi14: number | null;
+  obv: {
+    current: number;
+    sma20: number | null;
+    trend: "rising" | "falling" | "flat";
+  };
   volume: {
     avg20d: number;
     latest: number;

@@ -7,7 +7,7 @@ export type TickerWithLatestReport = {
   name: string;
   sector: string | null;
   active: boolean;
-  reports: { id: string; verdict: string; confidence: string; generated_at: string }[];
+  reports: { id: string; verdict: string; confidence: string; generated_at: string; report_json: Record<string, unknown> | null }[];
 };
 
 /**
@@ -20,7 +20,7 @@ export const getTickersWithLatestReport = cache(async () => {
 
   const { data, error } = await supabase
     .from("tickers")
-    .select("id, symbol, name, sector, active, reports(id, verdict, confidence, generated_at)")
+    .select("id, symbol, name, sector, active, reports(id, verdict, confidence, generated_at, report_json)")
     .order("symbol", { ascending: true })
     .order("generated_at", { foreignTable: "reports", ascending: false })
     .limit(1, { foreignTable: "reports" })
