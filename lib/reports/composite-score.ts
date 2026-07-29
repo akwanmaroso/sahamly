@@ -1,6 +1,8 @@
 import type { ComputedIndicators } from "@/lib/indicators/types";
 import type { RawFundamentals } from "@/lib/market-data/types";
 import type { FlowMetrics } from "@/lib/market-data/types";
+import type { TimeframeAlignment } from "@/lib/indicators/multi-timeframe";
+import { timeframeAlignmentScore } from "@/lib/indicators/multi-timeframe";
 
 export type SubScore = {
   score: number; // -100 to +100
@@ -93,6 +95,49 @@ function scoreTechnical(
     factors.push(`Low volume (${indicators.volume.ratio}x avg) — weak interest`);
   }
 
+  // MACD trend
+  if (indicators.macd.trend === "bullish") {
+    score += 15;
+    factors.push("MACD bullish crossover — upward momentum");
+  } else if (indicators.macd.trend === "bearish") {
+    score -= 15;
+    factors.push("MACD bearish crossover — downward momentum");
+  }
+
+  // Bollinger Bands position
+  const bb = indicators.bollingerBands;
+  if (bb.percentB != null) {
+    if (bb.percentB < 0.05) {
+      score += 15;
+      factors.push(`Price at lower Bollinger Band (%B: ${bb.percentB}) — potential bounce`);
+    } else if (bb.percentB > 0.95) {
+      score -= 10;
+      factors.push(`Price at upper Bollinger Band (%B: ${bb.percentB}) — stretched`);
+    }
+    // Bollinger squeeze: narrow bandwidth often precedes a breakout
+    if (bb.bandwidth != null && bb.bandwidth < 5) {
+      score += 5;
+      factors.push(`Bollinger squeeze (bandwidth: ${bb.bandwidth}%) — volatility compression`);
+    }
+  }
+
+  // RSI/MFI divergence — strongest reversal signals
+  const div = indicators.divergence;
+  if (div.rsiDivergence === "bullish") {
+    score += 20;
+    factors.push("Bullish RSI divergence — price lower low but RSI higher low (reversal signal)");
+  } else if (div.rsiDivergence === "bearish") {
+    score -= 20;
+    factors.push("Bearish RSI divergence — price higher high but RSI lower high (reversal signal)");
+  }
+  if (div.mfiDivergence === "bullish") {
+    score += 15;
+    factors.push("Bullish MFI divergence — money flow diverging from price (accumulation)");
+  } else if (div.mfiDivergence === "bearish") {
+    score -= 15;
+    factors.push("Bearish MFI divergence — money flow diverging from price (distribution)");
+  }
+
   return { score: clamp(score, -100, 100), label: "Technical", factors };
 }
 
@@ -179,7 +224,7 @@ function scoreFundamental(f: RawFundamentals): SubScore {
   return { score: clamp(score, -100, 100), label: "Fundamental", factors };
 }
 
-function scoreFlow(flowMetrics: FlowMetrics | undefined): SubScore {
+function scoreFlow(flowMetrics: FlowMetrics | undefined, marketCap?: number): SubScore {
   if (!flowMetrics) {
     return { score: 0, label: "Flow", factors: ["No broker flow data available"] };
   }
@@ -187,12 +232,24 @@ function scoreFlow(flowMetrics: FlowMetrics | undefined): SubScore {
   const factors: string[] = [];
   let score = 0;
 
-  // Foreign flow score is already -100 to +100, use it directly (weighted)
-  score += flowMetrics.foreignFlowScore * 0.4;
-  if (flowMetrics.foreignFlowScore > 30) {
-    factors.push(`Strong foreign inflow (score: +${flowMetrics.foreignFlowScore})`);
-  } else if (flowMetrics.foreignFlowScore < -30) {
-    factors.push(`Heavy foreign outflow (score: ${flowMetrics.foreignFlowScore})`);
+  // Foreign flow score: normalize by market cap when available for cross-stock comparability.
+  // Small-cap stocks with the same absolute flow get a higher score than large-caps.
+  let flowScore = flowMetrics.foreignFlowScore;
+  if (marketCap && marketCap > 0) {
+    // Market-cap tiers: micro (<1T), small (<10T), mid (<50T), large (>=50T) IDR
+    let capMultiplier = 1;
+    if (marketCap < 1e12) capMultiplier = 1.3;       // micro-cap: flow is more impactful
+    else if (marketCap < 10e12) capMultiplier = 1.1;  // small-cap
+    else if (marketCap >= 50e12) capMultiplier = 0.85; // large-cap: flow is less impactful
+    flowScore = Math.round(flowScore * capMultiplier);
+    flowScore = clamp(flowScore, -100, 100);
+  }
+
+  score += flowScore * 0.4;
+  if (flowScore > 30) {
+    factors.push(`Strong foreign inflow (score: +${flowScore}${marketCap ? ", cap-adjusted" : ""})`);
+  } else if (flowScore < -30) {
+    factors.push(`Heavy foreign outflow (score: ${flowScore}${marketCap ? ", cap-adjusted" : ""})`);
   }
 
   // Momentum
@@ -236,11 +293,22 @@ export function computeCompositeScore(
   indicators: ComputedIndicators,
   currentPrice: number,
   fundamentals: RawFundamentals,
-  flowMetrics: FlowMetrics | undefined
+  flowMetrics: FlowMetrics | undefined,
+  marketCap?: number,
+  timeframeAlignment?: TimeframeAlignment | null
 ): CompositeScore {
   const technical = scoreTechnical(indicators, currentPrice);
   const fundamental = scoreFundamental(fundamentals);
-  const flow = scoreFlow(flowMetrics);
+  const flow = scoreFlow(flowMetrics, marketCap);
+
+  // Apply multi-timeframe alignment bonus/penalty
+  const { adjustment, factor } = timeframeAlignmentScore(timeframeAlignment ?? null);
+  if (adjustment !== 0) {
+    technical.score = clamp(technical.score + adjustment, -100, 100);
+  }
+  if (factor) {
+    technical.factors.push(factor);
+  }
 
   const total = Math.round(
     technical.score * WEIGHTS.technical +

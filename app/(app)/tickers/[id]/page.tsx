@@ -3,7 +3,9 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { VerdictBadge, verdictAccentClass } from "@/app/components/verdict-badge";
 import type { ReportJson } from "@/lib/reports/schema";
+import { getBacktestSummary } from "@/lib/backtest/engine";
 import { RefreshButton } from "./refresh-button";
+import { BacktestButton } from "./backtest-button";
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
@@ -67,6 +69,8 @@ export default async function TickerDetailPage({
     .eq("ticker_id", id)
     .order("created_at", { ascending: false })
     .limit(5);
+
+  const backtestSummary = await getBacktestSummary(supabase, id);
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-6 py-10">
@@ -417,7 +421,7 @@ export default async function TickerDetailPage({
           <div className="flex flex-col gap-4">
             <SectionLabel>Entry / Exit</SectionLabel>
             <div className="rounded border border-amber/40 bg-surface p-5">
-              <div className="grid grid-cols-3 gap-4 font-mono">
+              <div className="grid grid-cols-4 gap-4 font-mono">
                 <div>
                   <dt className="text-[0.6875rem] tracking-wide text-muted uppercase">Entry</dt>
                   <dd className="mt-1 text-lg font-semibold text-ink">
@@ -436,6 +440,22 @@ export default async function TickerDetailPage({
                     {rj.entry_exit.target_zone.map(formatPrice).join(" – ")}
                   </dd>
                 </div>
+                <div>
+                  <dt className="text-[0.6875rem] tracking-wide text-muted uppercase">R:R</dt>
+                  <dd
+                    className={`mt-1 text-lg font-semibold ${
+                      (rj.entry_exit.risk_reward_ratio ?? 0) >= 2
+                        ? "text-gain"
+                        : (rj.entry_exit.risk_reward_ratio ?? 0) >= 1
+                          ? "text-amber"
+                          : "text-loss"
+                    }`}
+                  >
+                    {rj.entry_exit.risk_reward_ratio != null
+                      ? `${rj.entry_exit.risk_reward_ratio}:1`
+                      : "—"}
+                  </dd>
+                </div>
               </div>
               <p className="mt-4 border-t border-line pt-4 text-sm leading-relaxed text-ink">
                 {rj.entry_exit.position_sizing_note}
@@ -448,6 +468,100 @@ export default async function TickerDetailPage({
           </p>
         </>
       )}
+
+      {/* Backtesting section */}
+      <div className="flex flex-col gap-4">
+        <SectionLabel>Signal Backtesting</SectionLabel>
+        <BacktestButton tickerId={id} />
+
+        {backtestSummary && backtestSummary.totalSignals > 0 && (
+          <>
+            <div className="grid grid-cols-5 gap-3 font-mono">
+              <div className="rounded border border-line bg-surface p-3 text-center">
+                <div className="text-[0.6rem] tracking-wide text-muted uppercase">Win Rate</div>
+                <div
+                  className={`text-xl font-bold ${
+                    backtestSummary.winRate >= 0.55
+                      ? "text-gain"
+                      : backtestSummary.winRate >= 0.45
+                        ? "text-amber"
+                        : "text-loss"
+                  }`}
+                >
+                  {Math.round(backtestSummary.winRate * 100)}%
+                </div>
+              </div>
+              <div className="rounded border border-line bg-surface p-3 text-center">
+                <div className="text-[0.6rem] tracking-wide text-muted uppercase">Avg 5d</div>
+                <div
+                  className={`text-lg font-semibold ${
+                    backtestSummary.avgReturn5d > 0 ? "text-gain" : "text-loss"
+                  }`}
+                >
+                  {backtestSummary.avgReturn5d > 0 ? "+" : ""}
+                  {backtestSummary.avgReturn5d}%
+                </div>
+              </div>
+              <div className="rounded border border-line bg-surface p-3 text-center">
+                <div className="text-[0.6rem] tracking-wide text-muted uppercase">Avg 10d</div>
+                <div
+                  className={`text-lg font-semibold ${
+                    backtestSummary.avgReturn10d > 0 ? "text-gain" : "text-loss"
+                  }`}
+                >
+                  {backtestSummary.avgReturn10d > 0 ? "+" : ""}
+                  {backtestSummary.avgReturn10d}%
+                </div>
+              </div>
+              <div className="rounded border border-line bg-surface p-3 text-center">
+                <div className="text-[0.6rem] tracking-wide text-muted uppercase">Avg 20d</div>
+                <div
+                  className={`text-lg font-semibold ${
+                    backtestSummary.avgReturn20d > 0 ? "text-gain" : "text-loss"
+                  }`}
+                >
+                  {backtestSummary.avgReturn20d > 0 ? "+" : ""}
+                  {backtestSummary.avgReturn20d}%
+                </div>
+              </div>
+              <div className="rounded border border-line bg-surface p-3 text-center">
+                <div className="text-[0.6rem] tracking-wide text-muted uppercase">Max DD</div>
+                <div className="text-lg font-semibold text-loss">
+                  {backtestSummary.avgMaxDrawdown}%
+                </div>
+              </div>
+            </div>
+
+            <div className="font-mono text-xs text-muted">
+              {backtestSummary.totalSignals} signals · {backtestSummary.wins}W / {backtestSummary.losses}L / {backtestSummary.neutral}N
+            </div>
+
+            <details className="text-xs text-muted">
+              <summary className="cursor-pointer hover:text-ink">Signal type breakdown</summary>
+              <div className="mt-2 space-y-2">
+                {Object.entries(backtestSummary.bySignalType).map(([type, stats]) => (
+                  <div key={type} className="flex items-center gap-3 pl-4">
+                    <span className="font-mono font-semibold text-ink w-36">{type.replace(/_/g, " ")}</span>
+                    <span className={`font-mono ${stats.winRate >= 0.55 ? "text-gain" : stats.winRate >= 0.45 ? "text-amber" : "text-loss"}`}>
+                      {Math.round(stats.winRate * 100)}% win
+                    </span>
+                    <span className="font-mono text-muted">{stats.count} signals</span>
+                    <span className={`font-mono ${stats.avgReturn10d > 0 ? "text-gain" : "text-loss"}`}>
+                      avg 10d: {stats.avgReturn10d > 0 ? "+" : ""}{stats.avgReturn10d}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          </>
+        )}
+
+        {backtestSummary === null && (
+          <p className="text-sm text-muted">
+            No backtest data yet. Click &quot;Run backtest&quot; to backfill 2 years of price history and analyze signal accuracy.
+          </p>
+        )}
+      </div>
     </div>
   );
 }

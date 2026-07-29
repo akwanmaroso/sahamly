@@ -4,6 +4,7 @@ import { generateReport } from "@/lib/reports/generate-report";
 import { fetchAndStoreBrokerFlows } from "@/lib/broker-flow/fetch-and-store";
 import type { ReportJson } from "@/lib/reports/schema";
 import { detectSignals } from "@/lib/signals/detect";
+import { syncDailyOhlcv } from "@/lib/backtest/backfill-history";
 
 type Ticker = { id: string; symbol: string; name: string; sector: string | null };
 
@@ -42,6 +43,19 @@ export async function runPipelineForTicker(supabase: SupabaseClient, ticker: Tic
 
   if (error || !snapshot) {
     throw new Error(`Failed to load snapshot for ${ticker.symbol}: ${error?.message ?? "not found"}`);
+  }
+
+  // Sync recent OHLCV into price_history for backtesting continuity
+  try {
+    const ohlcv = snapshot.price_data?.ohlcv;
+    if (Array.isArray(ohlcv) && ohlcv.length > 0) {
+      await syncDailyOhlcv(supabase, ticker.id, ohlcv);
+    }
+  } catch (err) {
+    console.warn(
+      `[pipeline] Price history sync failed for ${ticker.symbol}:`,
+      err instanceof Error ? err.message : err
+    );
   }
 
   const reportRef = await generateReport(supabase, ticker, snapshot);
