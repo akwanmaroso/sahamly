@@ -5,6 +5,9 @@ import type { OhlcvBar, RawFlow, RawFundamentals } from "@/lib/market-data";
 import type { FlowMetrics } from "@/lib/market-data/types";
 import { computeCompositeScore, type CompositeScore } from "./composite-score";
 import { computeDeterministicTechnical, type DeterministicTechnical } from "./deterministic";
+import { computeTimeframeAlignment } from "@/lib/indicators/multi-timeframe";
+import { computeAdaptiveWeights, applySignalWeights } from "@/lib/backtest/signal-weights";
+import { computeLiquidityMetrics } from "@/lib/indicators/liquidity";
 import { geminiNarrativeSchema, narrativeReportSchema, reportJsonSchema, type ReportJson } from "./schema";
 
 const GEMINI_MODEL = "gemini-2.5-flash";
@@ -33,7 +36,9 @@ function buildPrompt(
   snapshot: SnapshotForReport,
   currentPrice: number,
   technical: DeterministicTechnical,
-  composite: CompositeScore
+  composite: CompositeScore,
+  tfAlignment: import("@/lib/indicators/multi-timeframe").TimeframeAlignment | null,
+  liquidity: import("@/lib/indicators/liquidity").LiquidityMetrics | null
 ): string {
   const { indicators } = snapshot.price_data;
   const f = snapshot.fundamental_data;
@@ -95,6 +100,8 @@ Technical facts:
 - ATR14: ${indicators.atr14 ?? "N/A"} (average true range — daily volatility measure)
 - Deterministic entry zone: ${technical.entryZone.join("-")}, stop-loss: ${technical.stopLoss} (ATR-based), target zone: ${technical.targetZone.join("-")}
 - Risk/reward ratio: ${technical.riskRewardRatio ?? "N/A"}
+${tfAlignment ? `- Multi-timeframe: daily MACD ${tfAlignment.daily.macdTrend}, weekly MACD ${tfAlignment.weekly.macdTrend} — ${tfAlignment.aligned ? `aligned ${tfAlignment.direction} (${tfAlignment.confidence})` : "conflicting (lower conviction)"}` : ""}
+${liquidity ? `- Liquidity: ${liquidity.tier} (score ${liquidity.liquidityScore}/100, est. spread ~${liquidity.estimatedSpreadPct}%, avg daily value ${(liquidity.avgDailyValue / 1e9).toFixed(1)}B IDR)` : ""}
 
 Fundamental facts:
 - P/E: ${f.peRatio} (sector average ${f.sectorAvgPe})
@@ -135,18 +142,62 @@ export async function generateReport(
 ): Promise<{ id: string }> {
   const currentPrice = snapshot.price_data.ohlcv.at(-1)!.close;
   const technical = computeDeterministicTechnical(snapshot.price_data.indicators, currentPrice);
+  const tfAlignment = computeTimeframeAlignment(snapshot.price_data.ohlcv);
+  const liquidity = computeLiquidityMetrics(snapshot.price_data.ohlcv);
   const composite = computeCompositeScore(
     snapshot.price_data.indicators,
     currentPrice,
     snapshot.fundamental_data,
     snapshot.flow_data.flowMetrics,
-    snapshot.fundamental_data.marketCap
+    snapshot.fundamental_data.marketCap,
+    tfAlignment
   );
+
+  // Apply liquidity penalty — illiquid stocks get a confidence/flow downgrade
+  if (liquidity) {
+    if (liquidity.tier === "illiquid") {
+      composite.flow.score = Math.max(-100, composite.flow.score - 15);
+      composite.flow.factors.push(`Illiquid stock (score: ${liquidity.liquidityScore}/100, spread ~${liquidity.estimatedSpreadPct}%) — harder to enter/exit`);
+    } else if (liquidity.tier === "low") {
+      composite.flow.score = Math.max(-100, composite.flow.score - 5);
+      composite.flow.factors.push(`Low liquidity (score: ${liquidity.liquidityScore}/100) — wider spreads expected`);
+    }
+  }
+
+  // Apply adaptive signal weights from backtesting (if data available)
+  try {
+    const ind = snapshot.price_data.indicators;
+    const weights = await computeAdaptiveWeights(supabase, ticker.id);
+    const hasDivergence = !!(ind.divergence.rsiDivergence || ind.divergence.mfiDivergence);
+    const bollingerExtreme = ind.bollingerBands.percentB !== null &&
+      (ind.bollingerBands.percentB < 0.05 || ind.bollingerBands.percentB > 0.95);
+    const { adjustment, factors } = applySignalWeights(weights, {
+      hasDivergence,
+      divergenceDirection: (ind.divergence.rsiDivergence ?? ind.divergence.mfiDivergence) as "bullish" | "bearish" | undefined,
+      macdTrend: ind.macd.trend,
+      bollingerExtreme,
+      bollingerSide: bollingerExtreme
+        ? (ind.bollingerBands.percentB! < 0.05 ? "lower" : "upper")
+        : undefined,
+    });
+    if (adjustment !== 0) {
+      composite.technical.score = Math.max(-100, Math.min(100, composite.technical.score + adjustment));
+      composite.technical.factors.push(...factors);
+      // Recompute total
+      composite.total = Math.max(-100, Math.min(100, Math.round(
+        composite.technical.score * 0.35 +
+        composite.fundamental.score * 0.35 +
+        composite.flow.score * 0.3
+      )));
+    }
+  } catch {
+    // Graceful: no backtest data yet, skip adaptive weights
+  }
 
   const ai = createGeminiClient();
   const response = await ai.models.generateContent({
     model: GEMINI_MODEL,
-    contents: buildPrompt(ticker, snapshot, currentPrice, technical, composite),
+    contents: buildPrompt(ticker, snapshot, currentPrice, technical, composite, tfAlignment, liquidity),
     config: {
       responseMimeType: "application/json",
       responseSchema: geminiNarrativeSchema,

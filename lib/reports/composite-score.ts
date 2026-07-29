@@ -1,6 +1,8 @@
 import type { ComputedIndicators } from "@/lib/indicators/types";
 import type { RawFundamentals } from "@/lib/market-data/types";
 import type { FlowMetrics } from "@/lib/market-data/types";
+import type { TimeframeAlignment } from "@/lib/indicators/multi-timeframe";
+import { timeframeAlignmentScore } from "@/lib/indicators/multi-timeframe";
 
 export type SubScore = {
   score: number; // -100 to +100
@@ -292,11 +294,21 @@ export function computeCompositeScore(
   currentPrice: number,
   fundamentals: RawFundamentals,
   flowMetrics: FlowMetrics | undefined,
-  marketCap?: number
+  marketCap?: number,
+  timeframeAlignment?: TimeframeAlignment | null
 ): CompositeScore {
   const technical = scoreTechnical(indicators, currentPrice);
   const fundamental = scoreFundamental(fundamentals);
   const flow = scoreFlow(flowMetrics, marketCap);
+
+  // Apply multi-timeframe alignment bonus/penalty
+  const { adjustment, factor } = timeframeAlignmentScore(timeframeAlignment ?? null);
+  if (adjustment !== 0) {
+    technical.score = clamp(technical.score + adjustment, -100, 100);
+  }
+  if (factor) {
+    technical.factors.push(factor);
+  }
 
   const total = Math.round(
     technical.score * WEIGHTS.technical +
