@@ -23,6 +23,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </Link>
         <div className="flex items-center gap-4 sm:gap-5">
           <span className="hidden font-mono text-xs text-muted md:inline">{user?.email}</span>
+          <Link href="/screener" className="text-sm font-medium text-ink hover:text-amber">
+            Screener
+          </Link>
+          <Link href="/compare" className="text-sm font-medium text-ink hover:text-amber">
+            Compare
+          </Link>
           <Link href="/tickers" className="text-sm font-medium text-ink hover:text-amber">
             Watchlist
           </Link>

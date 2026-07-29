@@ -37,6 +37,23 @@ export async function runPipeline(
   return { success: true };
 }
 
+export async function markSignalRead(signalId: string) {
+  const supabase = await createClient();
+  await supabase.from("signals").update({ read: true }).eq("id", signalId);
+  revalidatePath("/");
+}
+
+export async function markAllSignalsRead(tickerId: string) {
+  const supabase = await createClient();
+  await supabase
+    .from("signals")
+    .update({ read: true })
+    .eq("ticker_id", tickerId)
+    .eq("read", false);
+  revalidatePath(`/tickers/${tickerId}`);
+  revalidatePath("/");
+}
+
 export type BacktestState = { error: string } | { success: true; rows: number } | undefined;
 
 export async function runBacktestAction(
