@@ -85,11 +85,16 @@ Technical facts:
 - SMA20: ${indicators.sma.sma20}, SMA50: ${indicators.sma.sma50}, SMA200: ${indicators.sma.sma200}
 - RSI14: ${indicators.rsi14}
 - MFI14: ${indicators.mfi14} (0-100, like RSI but volume-weighted; >80 overbought, <20 oversold)
+- MACD: ${indicators.macd.macd ?? "N/A"} (signal: ${indicators.macd.signal ?? "N/A"}, histogram: ${indicators.macd.histogram ?? "N/A"}, trend: ${indicators.macd.trend})
+- Bollinger Bands: upper ${indicators.bollingerBands.upper ?? "N/A"}, middle ${indicators.bollingerBands.middle ?? "N/A"}, lower ${indicators.bollingerBands.lower ?? "N/A"} (%B: ${indicators.bollingerBands.percentB ?? "N/A"}, bandwidth: ${indicators.bollingerBands.bandwidth ?? "N/A"}%)
 - OBV trend: ${indicators.obv.trend} (current: ${indicators.obv.current.toLocaleString("en-US")}, 20d avg: ${indicators.obv.sma20?.toLocaleString("en-US") ?? "N/A"})
+- Divergence: RSI ${indicators.divergence.rsiDivergence ?? "none"}, MFI ${indicators.divergence.mfiDivergence ?? "none"}
 - Volume: latest ${indicators.volume.latest}, 20-day average ${indicators.volume.avg20d}, ratio ${indicators.volume.ratio}x
 - Support levels: ${technical.supportLevels.join(", ")}
 - Resistance levels: ${technical.resistanceLevels.join(", ")}
-- Deterministic entry zone: ${technical.entryZone.join("-")}, stop-loss: ${technical.stopLoss}, target zone: ${technical.targetZone.join("-")}
+- ATR14: ${indicators.atr14 ?? "N/A"} (average true range — daily volatility measure)
+- Deterministic entry zone: ${technical.entryZone.join("-")}, stop-loss: ${technical.stopLoss} (ATR-based), target zone: ${technical.targetZone.join("-")}
+- Risk/reward ratio: ${technical.riskRewardRatio ?? "N/A"}
 
 Fundamental facts:
 - P/E: ${f.peRatio} (sector average ${f.sectorAvgPe})
@@ -134,7 +139,8 @@ export async function generateReport(
     snapshot.price_data.indicators,
     currentPrice,
     snapshot.fundamental_data,
-    snapshot.flow_data.flowMetrics
+    snapshot.flow_data.flowMetrics,
+    snapshot.fundamental_data.marketCap
   );
 
   const ai = createGeminiClient();
@@ -177,6 +183,7 @@ export async function generateReport(
       entry_zone: technical.entryZone,
       stop_loss: technical.stopLoss,
       target_zone: technical.targetZone,
+      risk_reward_ratio: technical.riskRewardRatio,
       position_sizing_note: narrative.entry_exit.position_sizing_note,
     },
     ...(flowMetrics

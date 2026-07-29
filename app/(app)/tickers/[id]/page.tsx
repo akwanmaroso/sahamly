@@ -417,7 +417,7 @@ export default async function TickerDetailPage({
           <div className="flex flex-col gap-4">
             <SectionLabel>Entry / Exit</SectionLabel>
             <div className="rounded border border-amber/40 bg-surface p-5">
-              <div className="grid grid-cols-3 gap-4 font-mono">
+              <div className="grid grid-cols-4 gap-4 font-mono">
                 <div>
                   <dt className="text-[0.6875rem] tracking-wide text-muted uppercase">Entry</dt>
                   <dd className="mt-1 text-lg font-semibold text-ink">
@@ -434,6 +434,22 @@ export default async function TickerDetailPage({
                   <dt className="text-[0.6875rem] tracking-wide text-muted uppercase">Target</dt>
                   <dd className="mt-1 text-lg font-semibold text-gain">
                     {rj.entry_exit.target_zone.map(formatPrice).join(" – ")}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[0.6875rem] tracking-wide text-muted uppercase">R:R</dt>
+                  <dd
+                    className={`mt-1 text-lg font-semibold ${
+                      (rj.entry_exit.risk_reward_ratio ?? 0) >= 2
+                        ? "text-gain"
+                        : (rj.entry_exit.risk_reward_ratio ?? 0) >= 1
+                          ? "text-amber"
+                          : "text-loss"
+                    }`}
+                  >
+                    {rj.entry_exit.risk_reward_ratio != null
+                      ? `${rj.entry_exit.risk_reward_ratio}:1`
+                      : "—"}
                   </dd>
                 </div>
               </div>

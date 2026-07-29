@@ -6,10 +6,28 @@ export type ComputedIndicators = {
   };
   rsi14: number | null;
   mfi14: number | null;
+  macd: {
+    macd: number | null;
+    signal: number | null;
+    histogram: number | null;
+    trend: "bullish" | "bearish" | "neutral";
+  };
+  atr14: number | null;
+  bollingerBands: {
+    upper: number | null;
+    middle: number | null;
+    lower: number | null;
+    percentB: number | null; // 0-1, where price sits within bands
+    bandwidth: number | null; // band width as % of middle
+  };
   obv: {
     current: number;
     sma20: number | null;
     trend: "rising" | "falling" | "flat";
+  };
+  divergence: {
+    rsiDivergence: "bullish" | "bearish" | null;
+    mfiDivergence: "bullish" | "bearish" | null;
   };
   volume: {
     avg20d: number;
