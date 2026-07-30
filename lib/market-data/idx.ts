@@ -20,6 +20,14 @@ const BROWSER_HEADERS: Record<string, string> = {
 // Session management
 // ---------------------------------------------------------------------------
 
+/** Thrown when IDX is unreachable/blocking, so callers can fall back. */
+export class IdxUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "IdxUnavailableError";
+  }
+}
+
 let sessionCookie = "";
 let sessionExpiry = 0;
 const SESSION_TTL_MS = 10 * 60 * 1000; // refresh every 10 min
@@ -36,6 +44,18 @@ async function ensureSession(): Promise<void> {
   sessionCookie = setCookies.join("; ");
   // Fully consume the body so the connection is released
   await res.text();
+
+  // A blocked landing page still hands back a challenge cookie, so without
+  // this check every downstream call fails with its own confusing 403.
+  if (!res.ok) {
+    sessionCookie = "";
+    sessionExpiry = 0;
+    const via = res.headers.get("server") ?? "unknown";
+    throw new IdxUnavailableError(
+      `IDX session bootstrap failed: ${res.status} ${res.statusText} from idx.co.id (server: ${via}). ` +
+        `The IDX site is blocking this host, so no IDX endpoint will succeed.`
+    );
+  }
 
   // Warm the session with a lightweight call
   const warmup = await fetch(`${IDX_BASE}/home/GetIndexList`, {
@@ -58,7 +78,15 @@ async function idxFetch(url: string): Promise<Response> {
     cache: "no-store",
   });
   if (!res.ok) {
-    throw new Error(`IDX API ${res.status}: ${res.statusText} for ${url}`);
+    const msg = `IDX API ${res.status}: ${res.statusText} for ${url}`;
+    // 403/429 mean bot-blocking or rate limiting rather than a bad request —
+    // both are worth falling back on rather than failing the whole snapshot.
+    if (res.status === 403 || res.status === 429 || res.status >= 500) {
+      sessionCookie = "";
+      sessionExpiry = 0;
+      throw new IdxUnavailableError(msg);
+    }
+    throw new Error(msg);
   }
   return res;
 }
